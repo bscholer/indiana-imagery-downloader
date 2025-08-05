@@ -6,15 +6,12 @@ A user-friendly shell script to download imagery files from the Indiana 2024 ima
 
 - 🎨 **Beautiful ASCII Art Interface** - Eye-catching terminal UI with colors
 - 🗺️ **County Selection** - Choose from available Indiana counties
-- 📁 **Multiple File Types** - Download various imagery formats:
-  - TIF Files (Optimized Imagery)
-  - ECW Files (Compressed Imagery) 
-  - TFW Files (World Files for TIF)
-  - EWW Files (World Files for ECW)
-  - SDW Files (World Files for SID)
-  - SID Files (MrSID Imagery)
-  - Mosaic Files (SID format)
-  - All Files (Download everything)
+- 📁 **Multiple Product Types** - Download complete imagery packages:
+  - **TIF + World Files** - High-quality raster imagery with geolocation
+  - **ECW + World Files** - Compressed raster imagery with geolocation
+  - **SID + World Files** - MrSID compressed imagery with geolocation
+  - **Mosaic Files** - Large-scale combined imagery
+  - **All Product Types** - Download everything
 - 📂 **Organized Downloads** - Files are organized by county and product type
 - ⏸️ **Graceful Interruption** - Handle Ctrl+C cleanly
 - 📊 **Download Summary** - See total files and sizes downloaded
@@ -75,11 +72,10 @@ The script automatically detects counties from the CSV file, including:
 
 ## Product Types Explained
 
-- **TIF**: High-quality raster imagery files
-- **ECW**: Enhanced Compressed Wavelet format (smaller file sizes)
-- **TFW/EWW/SDW**: World files containing geospatial positioning information
-- **SID**: MrSID compressed imagery format
-- **Mosaic**: Large-scale combined imagery files
+- **TIF + World Files**: High-quality raster imagery (.tif) with geospatial positioning (.tfw) - best quality, larger files
+- **ECW + World Files**: Enhanced Compressed Wavelet format (.ecw) with positioning (.eww) - good quality, smaller files  
+- **SID + World Files**: MrSID compressed imagery (.sid) with positioning (.sdw) - compressed format
+- **Mosaic**: Large-scale combined imagery files covering bigger areas
 
 ## Error Handling
 
@@ -103,10 +99,13 @@ Enter county number (1-12): 5
 Step 2: Select Product Type
 Available Product Types:
 ━━━━━━━━━━━━━━━━━━━━━━━━
-[1] TIF Files (Optimized Imagery) - url_tif
-[2] ECW Files (Compressed Imagery) - url_ecw
+[1] TIF + World Files (High-quality raster + geolocation) - tif
+[2] ECW + World Files (Compressed raster + geolocation) - ecw
+[3] SID + World Files (MrSID compressed + geolocation) - sid
+[4] Mosaic Files (Large-scale combined imagery) - mosaic
+[5] All Product Types - all
 ...
-Enter product type number (1-8): 1
+Enter product type number (1-5): 1
 
 Step 3: Set Download Location
 Enter download directory path (default: ./downloads): 
