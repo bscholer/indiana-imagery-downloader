@@ -15,8 +15,8 @@ NC='\033[0m' # No Color
 
 # Global arrays
 COUNTIES=()
-PRODUCT_TYPES=("url_tif" "url_ecw" "url_tfw" "url_eww" "url_sdw" "url_sid" "mosaic" "all")
-PRODUCT_NAMES=("TIF Files (Optimized Imagery)" "ECW Files (Compressed Imagery)" "TFW Files (World Files for TIF)" "EWW Files (World Files for ECW)" "SDW Files (World Files for SID)" "SID Files (MrSID Imagery)" "Mosaic Files (SID format)" "All Files (Download everything)")
+PRODUCT_TYPES=("tif" "ecw" "sid" "mosaic" "all")
+PRODUCT_NAMES=("TIF + World Files (High-quality raster + geolocation)" "ECW + World Files (Compressed raster + geolocation)" "SID + World Files (MrSID compressed + geolocation)" "Mosaic Files (Large-scale combined imagery)" "All Product Types")
 
 # Simple header
 print_header() {
@@ -116,18 +116,15 @@ parse_selection() {
     printf '%s\n' "${selections[@]}" | sort -nu
 }
 
-# Function to get column number for product type
-get_column_number() {
+# Function to get column numbers for product type (returns main_col:world_col)
+get_column_numbers() {
     local product_type="$1"
     case "$product_type" in
-        "url_tif") echo 1 ;;
-        "url_ecw") echo 6 ;;
-        "url_tfw") echo 9 ;;
-        "url_eww") echo 10 ;;
-        "url_sdw") echo 11 ;;
-        "url_sid") echo 16 ;;
-        "mosaic") echo 13 ;;
-        *) echo 0 ;;
+        "tif") echo "1:9" ;;      # url_tif:url_tfw
+        "ecw") echo "6:10" ;;     # url_ecw:url_eww  
+        "sid") echo "16:11" ;;    # url_sid:url_sdw
+        "mosaic") echo "13:" ;;   # mosaic (no world file)
+        *) echo "0:" ;;
     esac
 }
 
@@ -206,10 +203,10 @@ download_batch() {
     local total_combinations=$((${#counties[@]} * ${#products[@]}))
     local current_combination=0
     
-    echo -e "${GREEN}Starting batch download of $total_combinations combinations...${NC}"
+    echo -e "${GREEN}Starting batch download of $total_combinations combinations${NC}"
     echo
     
-    # Process all combinations with minimal delays
+    # Process all combinations sequentially for proper Ctrl+C handling
     for county in "${counties[@]}"; do
         for product in "${products[@]}"; do
             ((current_combination++))
@@ -219,22 +216,14 @@ download_batch() {
                 # Handle "all" products specially
                 for prod in "${PRODUCT_TYPES[@]}"; do
                     if [[ "$prod" != "all" ]]; then
-                        download_files "$county" "$prod" "$download_dir" &
+                        download_files "$county" "$prod" "$download_dir"
                     fi
                 done
-                # Wait for all "all" downloads to finish before next combination
-                wait
             else
-                # Start download in background for faster batching
-                download_files "$county" "$product" "$download_dir" &
+                download_files "$county" "$product" "$download_dir"
             fi
-            
-            # Small delay to let the download queuing happen
-            sleep 0.2
         done
         
-        # Wait for current county's downloads before moving to next county
-        wait
         echo -e "${GREEN}✓ Completed all downloads for $county${NC}"
         echo
     done
@@ -248,8 +237,11 @@ download_product_type() {
     local product_type="$2"
     local download_dir="$3"
     
-    local column_num=$(get_column_number "$product_type")
-    if [[ $column_num -eq 0 ]]; then
+    local column_info=$(get_column_numbers "$product_type")
+    local main_col="${column_info%:*}"
+    local world_col="${column_info#*:}"
+    
+    if [[ $main_col -eq 0 ]]; then
         echo -e "${RED}Error: Invalid product type $product_type${NC}"
         return 1
     fi
@@ -260,8 +252,11 @@ download_product_type() {
     local product_dir="$download_dir/$product_type"
     mkdir -p "$product_dir"
     
-    # Extract URLs for the specific county and product type
-    local urls=$(tail -n +2 "Footprint_2024.csv" | awk -F',' -v county="$county" -v col="$column_num" '
+    # Extract URLs for both main files and world files
+    local all_urls=""
+    
+    # Get main files (TIF/ECW/SID/Mosaic)
+    local main_urls=$(tail -n +2 "Footprint_2024.csv" | awk -F',' -v county="$county" -v col="$main_col" '
         $4 == county || $4 == "\"" county "\"" {
             gsub(/^"/, "", $col)
             gsub(/"$/, "", $col)
@@ -269,63 +264,148 @@ download_product_type() {
         }
     ')
     
-    if [[ -z "$urls" ]]; then
+    all_urls="$main_urls"
+    
+    # Get world files if they exist (TFW/EWW/SDW)
+    if [[ -n "$world_col" ]]; then
+        local world_urls=$(tail -n +2 "Footprint_2024.csv" | awk -F',' -v county="$county" -v col="$world_col" '
+            $4 == county || $4 == "\"" county "\"" {
+                gsub(/^"/, "", $col)
+                gsub(/"$/, "", $col)
+                if ($col != "" && $col != "N/A") print $col
+            }
+        ')
+        if [[ -n "$world_urls" ]]; then
+            all_urls="$all_urls"$'\n'"$world_urls"
+        fi
+    fi
+    
+    if [[ -z "$all_urls" ]]; then
         echo -e "${YELLOW}No $product_type files found for county: $county${NC}"
         return 0
     fi
+    
+    local urls="$all_urls"
     
     local count=0
     local total=$(echo "$urls" | wc -l)
     
     echo -e "${BLUE}Found $total files to download${NC}"
     
-    # BEAST MODE: Maximum parallel downloads for S3
+    # Parallel downloads for efficient transfer
     local max_parallel=15
     
     if [[ $total -eq 1 ]]; then
-        # Single file - just download it
+        # Single file - check if already downloaded
         local url=$(echo "$urls" | head -1)
         local filename=$(basename "$url")
         local filepath="$product_dir/$filename"
         
-        echo -e "${CYAN}Downloading: $filename${NC}"
-        curl -L --fail --show-error --progress-bar \
-            --connect-timeout 5 --max-time 1800 \
-            --retry 2 --retry-delay 1 \
-            --output "$filepath" "$url"
+        if [[ -f "$filepath" ]]; then
+            # Check if file is complete
+            local remote_size=$(curl -sIL "$url" | grep -i content-length | tail -1 | awk '{print $2}' | tr -d '\r')
+            local local_size=$(stat -f%z "$filepath" 2>/dev/null || stat -c%s "$filepath" 2>/dev/null || echo "0")
+            
+            if [[ "$local_size" == "$remote_size" ]] && [[ "$remote_size" -gt 0 ]]; then
+                echo -e "${GREEN}✓ Already complete: $filename${NC}"
+                return 0
+            elif [[ "$local_size" -gt 0 ]] && [[ "$local_size" -lt "$remote_size" ]]; then
+                echo -e "${YELLOW}Resuming: $filename (${local_size}/${remote_size} bytes)${NC}"
+                curl -L --fail --show-error --progress-bar \
+                    --connect-timeout 5 --max-time 1800 \
+                    --retry 2 --retry-delay 1 \
+                    --continue-at - --output "$filepath" "$url"
+            else
+                echo -e "${YELLOW}Re-downloading: $filename (size mismatch)${NC}"
+                rm -f "$filepath"
+                curl -L --fail --show-error --progress-bar \
+                    --connect-timeout 5 --max-time 1800 \
+                    --retry 2 --retry-delay 1 \
+                    --output "$filepath" "$url"
+            fi
+        else
+            echo -e "${CYAN}Downloading: $filename${NC}"
+            curl -L --fail --show-error --progress-bar \
+                --connect-timeout 5 --max-time 1800 \
+                --retry 2 --retry-delay 1 \
+                --output "$filepath" "$url"
+        fi
     else
-        # Multiple files - go parallel beast mode
-        echo -e "${YELLOW}🚀 BEAST MODE: $max_parallel concurrent downloads!${NC}"
-        echo -e "${CYAN}Queueing $total files...${NC}"
+        # Multiple files - use parallel downloads
+        echo -e "${YELLOW}Initiating $max_parallel concurrent downloads${NC}"
+        echo -e "${CYAN}Processing $total files...${NC}"
         
-        # Create a temporary file list for curl (quietly)
+        # Create a temporary file list for curl (quietly) and check existing files
         local temp_list=$(mktemp)
         local url_count=0
+        local skip_count=0
+        local resume_count=0
         
         while IFS= read -r url; do
             if [[ -n "$url" && "$url" != "N/A" ]]; then
-                ((url_count++))
                 local filename=$(basename "$url")
                 local filepath="$product_dir/$filename"
-                echo "url = \"$url\"" >> "$temp_list"
-                echo "output = \"$filepath\"" >> "$temp_list"
-                echo "" >> "$temp_list"
+                
+                if [[ -f "$filepath" ]]; then
+                    # File exists - check if it's complete by trying a HEAD request
+                    local remote_size=$(curl -sIL "$url" | grep -i content-length | tail -1 | awk '{print $2}' | tr -d '\r')
+                    local local_size=$(stat -f%z "$filepath" 2>/dev/null || stat -c%s "$filepath" 2>/dev/null || echo "0")
+                    
+                    if [[ "$local_size" == "$remote_size" ]] && [[ "$remote_size" -gt 0 ]]; then
+                        echo -e "${GREEN}✓ Already complete: $filename${NC}"
+                        ((skip_count++))
+                        continue
+                    elif [[ "$local_size" -gt 0 ]] && [[ "$local_size" -lt "$remote_size" ]]; then
+                        echo -e "${YELLOW}Resuming: $filename (${local_size}/${remote_size} bytes)${NC}"
+                        ((resume_count++))
+                        # Add continue-at option for resume
+                        echo "url = \"$url\"" >> "$temp_list"
+                        echo "output = \"$filepath\"" >> "$temp_list"
+                        echo "continue-at = -" >> "$temp_list"
+                        echo "" >> "$temp_list"
+                    else
+                        # File is corrupted or larger than expected, re-download
+                        echo -e "${YELLOW}Re-downloading: $filename (size mismatch)${NC}"
+                        rm -f "$filepath"
+                        echo "url = \"$url\"" >> "$temp_list"
+                        echo "output = \"$filepath\"" >> "$temp_list"
+                        echo "" >> "$temp_list"
+                    fi
+                else
+                    # New download
+                    echo "url = \"$url\"" >> "$temp_list"
+                    echo "output = \"$filepath\"" >> "$temp_list"
+                    echo "" >> "$temp_list"
+                fi
+                ((url_count++))
             fi
         done <<< "$urls"
         
-        echo -e "${BLUE}🔥 Unleashing $url_count parallel downloads...${NC}"
-        
-        # Use curl's config file with progress bars enabled
-        curl --config "$temp_list" \
-            --parallel --parallel-max $max_parallel \
-            --connect-timeout 5 --max-time 1800 \
-            --retry 2 --retry-delay 1 \
-            --fail --location --progress-bar
+        # Report what we're doing
+        local download_count=$((url_count - skip_count))
+        if [[ $skip_count -gt 0 ]]; then
+            echo -e "${GREEN}Skipped $skip_count already complete files${NC}"
+        fi
+        if [[ $resume_count -gt 0 ]]; then
+            echo -e "${YELLOW}Resuming $resume_count partial downloads${NC}"
+        fi
+        if [[ $download_count -gt 0 ]]; then
+            echo -e "${BLUE}Starting $download_count downloads (max $max_parallel concurrent)${NC}"
+            
+            # Use curl's config file with progress bars enabled
+            curl --config "$temp_list" \
+                --parallel --parallel-max $max_parallel \
+                --connect-timeout 5 --max-time 1800 \
+                --retry 2 --retry-delay 1 \
+                --fail --location --progress-bar
+            
+            echo -e "${GREEN}✓ Download batch completed!${NC}"
+        else
+            echo -e "${GREEN}✓ All files already downloaded!${NC}"
+        fi
         
         # Clean up
         rm -f "$temp_list"
-        
-        echo -e "${GREEN}✓ Parallel download batch completed!${NC}"
     fi
     
     echo -e "${GREEN}Completed downloading $product_type files for $county${NC}"
@@ -450,7 +530,7 @@ main() {
     
     # Calculate total combinations
     local total_combinations=$((${#selected_counties[@]} * ${#selected_products[@]}))
-    echo -e "${BLUE}This will download $total_combinations county/product combinations.${NC}"
+    echo -e "${BLUE}This will process $total_combinations county/product combinations.${NC}"
     echo
     
     echo -e "${CYAN}Proceed with download? (y/N): ${NC}"
