@@ -127,6 +127,35 @@ get_product_types() {
     echo
 }
 
+# Helper function to extract URLs from CSV for a county and column
+extract_urls_from_csv() {
+    local county="$1"
+    local column="$2"
+    
+    tail -n +2 "Footprint_2024.csv" | awk -F',' -v county="$county" -v col="$column" '
+        $4 == county || $4 == "\"" county "\"" {
+            gsub(/^"/, "", $col)
+            gsub(/"$/, "", $col)
+            if ($col != "" && $col != "N/A") print $col
+        }
+    '
+}
+
+# Helper function to count files for a county and column
+count_files_from_csv() {
+    local county="$1"
+    local column="$2"
+    
+    tail -n +2 "Footprint_2024.csv" | awk -F',' -v county="$county" -v col="$column" '
+        $4 == county || $4 == "\"" county "\"" {
+            gsub(/^"/, "", $col)
+            gsub(/"$/, "", $col)
+            if ($col != "" && $col != "N/A") count++
+        }
+        END { print count+0 }
+    '
+}
+
 # Function to check if a product type is available for a county
 check_product_availability() {
     local county="$1"
@@ -140,14 +169,7 @@ check_product_availability() {
     fi
     
     # Quick check if any files exist for this county/product combination
-    local file_count=$(tail -n +2 "Footprint_2024.csv" | awk -F',' -v county="$county" -v col="$main_col" '
-        $4 == county || $4 == "\"" county "\"" {
-            gsub(/^"/, "", $col)
-            gsub(/"$/, "", $col)
-            if ($col != "" && $col != "N/A") count++
-        }
-        END { print count+0 }
-    ')
+    local file_count=$(count_files_from_csv "$county" "$main_col")
     
     [[ $file_count -gt 0 ]]
 }
@@ -228,16 +250,8 @@ download_files() {
     local county_dir="$download_dir/$county"
     mkdir -p "$county_dir"
     
-    if [[ "$product_type" == "all" ]]; then
-        # Download all product types except "all"
-        for prod in "${PRODUCT_TYPES[@]}"; do
-            if [[ "$prod" != "all" ]]; then
-                download_product_type "$county" "$prod" "$county_dir"
-            fi
-        done
-    else
-        download_product_type "$county" "$product_type" "$county_dir"
-    fi
+    # The "all" logic is handled by download_batch, so this function only gets specific product types
+    download_product_type "$county" "$product_type" "$county_dir"
 }
 
 # Function to download multiple counties and products
@@ -320,25 +334,12 @@ download_product_type() {
     local all_urls=""
     
     # Get main files (TIF/ECW/SID/Mosaic)
-    local main_urls=$(tail -n +2 "Footprint_2024.csv" | awk -F',' -v county="$county" -v col="$main_col" '
-        $4 == county || $4 == "\"" county "\"" {
-            gsub(/^"/, "", $col)
-            gsub(/"$/, "", $col)
-            if ($col != "" && $col != "N/A") print $col
-        }
-    ')
-    
+    local main_urls=$(extract_urls_from_csv "$county" "$main_col")
     all_urls="$main_urls"
     
     # Get world files if they exist (TFW/EWW/SDW)
     if [[ -n "$world_col" ]]; then
-        local world_urls=$(tail -n +2 "Footprint_2024.csv" | awk -F',' -v county="$county" -v col="$world_col" '
-            $4 == county || $4 == "\"" county "\"" {
-                gsub(/^"/, "", $col)
-                gsub(/"$/, "", $col)
-                if ($col != "" && $col != "N/A") print $col
-            }
-        ')
+        local world_urls=$(extract_urls_from_csv "$county" "$world_col")
         if [[ -n "$world_urls" ]]; then
             all_urls="$all_urls"$'\n'"$world_urls"
         fi
