@@ -17,6 +17,8 @@ NC='\033[0m' # No Color
 COUNTIES=()
 PRODUCT_TYPES=("tif" "ecw" "sid" "mosaic" "all")
 PRODUCT_NAMES=("TIF + World Files (High-quality raster + geolocation)" "ECW + World Files (Compressed raster + geolocation)" "SID + World Files (MrSID compressed + geolocation)" "Mosaic Files (Large-scale combined imagery)" "All Product Types")
+AVAILABLE_PRODUCTS=()
+AVAILABLE_PRODUCT_NAMES=()
 
 # Simple header
 print_header() {
@@ -76,16 +78,78 @@ get_counties() {
     echo "Found $((counter-1)) counties"
 }
 
-# Function to display product types
+# Function to display product types (filtered by county availability)
 get_product_types() {
+    local counties=("$@")
+    
     echo -e "${BLUE}Available Product Types:${NC}"
     echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
     
-    for i in "${!PRODUCT_NAMES[@]}"; do
-        local num=$((i+1))
-        echo -e "${YELLOW}[$num]${NC} ${PRODUCT_NAMES[$i]} - ${PRODUCT_TYPES[$i]}"
+    # Clear and rebuild available products array
+    AVAILABLE_PRODUCTS=()
+    AVAILABLE_PRODUCT_NAMES=()
+    
+    for i in "${!PRODUCT_TYPES[@]}"; do
+        local product_type="${PRODUCT_TYPES[$i]}"
+        
+        if [[ "$product_type" == "all" ]]; then
+            # Always include "all" option
+            AVAILABLE_PRODUCTS+=("$product_type")
+            AVAILABLE_PRODUCT_NAMES+=("${PRODUCT_NAMES[$i]}")
+            continue
+        fi
+        
+        # Check if this product type has files for any of the selected counties
+        local has_files=false
+        for county in "${counties[@]}"; do
+            if check_product_availability "$county" "$product_type"; then
+                has_files=true
+                break
+            fi
+        done
+        
+        if [[ "$has_files" == "true" ]]; then
+            AVAILABLE_PRODUCTS+=("$product_type")
+            AVAILABLE_PRODUCT_NAMES+=("${PRODUCT_NAMES[$i]}")
+        fi
     done
+    
+    # Display available products
+    for i in "${!AVAILABLE_PRODUCTS[@]}"; do
+        local num=$((i+1))
+        echo -e "${YELLOW}[$num]${NC} ${AVAILABLE_PRODUCT_NAMES[$i]} - ${AVAILABLE_PRODUCTS[$i]}"
+    done
+    
+    if [[ ${#AVAILABLE_PRODUCTS[@]} -eq 1 ]] && [[ "${AVAILABLE_PRODUCTS[0]}" == "all" ]]; then
+        echo -e "${YELLOW}Warning: No specific product types found for selected counties${NC}"
+    fi
+    
     echo
+}
+
+# Function to check if a product type is available for a county
+check_product_availability() {
+    local county="$1"
+    local product_type="$2"
+    
+    local column_info=$(get_column_numbers "$product_type")
+    local main_col="${column_info%:*}"
+    
+    if [[ $main_col -eq 0 ]]; then
+        return 1
+    fi
+    
+    # Quick check if any files exist for this county/product combination
+    local file_count=$(tail -n +2 "Footprint_2024.csv" | awk -F',' -v county="$county" -v col="$main_col" '
+        $4 == county || $4 == "\"" county "\"" {
+            gsub(/^"/, "", $col)
+            gsub(/"$/, "", $col)
+            if ($col != "" && $col != "N/A") count++
+        }
+        END { print count+0 }
+    ')
+    
+    [[ $file_count -gt 0 ]]
 }
 
 # Function to parse multi-selection input
@@ -426,14 +490,6 @@ show_summary() {
         echo -e "${GREEN}Total files downloaded: $total_files${NC}"
         echo -e "${GREEN}Total size: $total_size${NC}"
         echo -e "${GREEN}Download location: $download_dir${NC}"
-        
-        echo
-        echo -e "${BLUE}Directory structure:${NC}"
-        if command -v tree >/dev/null 2>&1; then
-            tree "$download_dir" 2>/dev/null || find "$download_dir" -type d | head -20
-        else
-            find "$download_dir" -type d | head -20
-        fi
     fi
 }
 
@@ -476,17 +532,23 @@ main() {
     echo -e "${GREEN}Selected counties: ${selected_counties[*]}${NC}"
     echo
     
-    # Get user input for product types
+    # Get user input for product types (filtered by county availability)
     echo -e "${BLUE}Step 2: Select Product Types${NC}"
-    get_product_types
+    echo -e "${CYAN}Checking product availability for selected counties...${NC}"
+    get_product_types "${selected_counties[@]}"
     
-    echo -e "${CYAN}Enter product type numbers (1-${#PRODUCT_TYPES[@]}): ${NC}"
-    echo -e "${CYAN}Examples: '1', '1,2,3', '1-4', '8' (for all)${NC}"
+    if [[ ${#AVAILABLE_PRODUCTS[@]} -eq 0 ]]; then
+        echo -e "${RED}No product types available for the selected counties!${NC}"
+        exit 1
+    fi
+    
+    echo -e "${CYAN}Enter product type numbers (1-${#AVAILABLE_PRODUCTS[@]}): ${NC}"
+    echo -e "${CYAN}Examples: '1', '1,2,3', '1-4'${NC}"
     read -r product_input
     
     local -a selected_products=()
     local product_selections_raw
-    product_selections_raw=$(parse_selection "$product_input" "${#PRODUCT_TYPES[@]}")
+    product_selections_raw=$(parse_selection "$product_input" "${#AVAILABLE_PRODUCTS[@]}")
     
     if [[ -z "$product_selections_raw" ]]; then
         echo -e "${RED}Invalid product type selection!${NC}"
@@ -495,7 +557,7 @@ main() {
     
     while IFS= read -r selection; do
         if [[ -n "$selection" ]]; then
-            selected_products+=("${PRODUCT_TYPES[$((selection-1))]}")
+            selected_products+=("${AVAILABLE_PRODUCTS[$((selection-1))]}")
         fi
     done <<< "$product_selections_raw"
     
