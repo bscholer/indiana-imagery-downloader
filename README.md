@@ -1,124 +1,121 @@
 # Indiana Imagery Downloader 2024
 
-A user-friendly shell script to download imagery files from the Indiana 2024 imagery footprint dataset.
+A command-line utility for downloading aerial imagery files from the Indiana 2024 statewide imagery dataset.
 
 ## Features
 
-- 🎨 **Beautiful ASCII Art Interface** - Eye-catching terminal UI with colors
-- 🗺️ **County Selection** - Choose from available Indiana counties
-- 📁 **Multiple Product Types** - Download complete imagery packages:
-  - **TIF + World Files** - High-quality raster imagery with geolocation
-  - **ECW + World Files** - Compressed raster imagery with geolocation
-  - **SID + World Files** - MrSID compressed imagery with geolocation
-  - **Mosaic Files** - Large-scale combined imagery
-  - **All Product Types** - Download everything
-- 📂 **Organized Downloads** - Files are organized by county and product type
-- ⏸️ **Graceful Interruption** - Handle Ctrl+C cleanly
-- 📊 **Download Summary** - See total files and sizes downloaded
+- **County-Based Selection** - Select imagery by Indiana county
+- **Multiple Product Types** - Download complete imagery packages:
+  - **TIF + World Files** - High-quality raster imagery with geolocation data
+  - **ECW + World Files** - Compressed raster imagery with geolocation data
+  - **SID + World Files** - MrSID compressed imagery with geolocation data
+  - **Mosaic Files** - Large-scale combined imagery products
+  - **All Product Types** - Download all available formats
+- **Smart Product Filtering** - Only shows product types available for selected counties
+- **Organized File Structure** - Files are organized by county and product type
+- **Resume Capability** - Resume interrupted downloads automatically
+- **Batch Processing** - Download multiple counties and products efficiently
+- **Progress Monitoring** - Real-time download progress and status reporting
 
-## Requirements
+## System Requirements
 
-- Bash shell (compatible with older versions)
-- curl command-line tool
-- The `Footprint_2024.csv` file in the same directory
+- Unix-like operating system (Linux, macOS, etc.)
+- Bash shell (version 3.0 or later)
+- curl command-line utility
+- Internet connectivity
+- The required CSV dataset file
 
-## Usage
+## Installation and Setup
 
-1. Make sure `Footprint_2024.csv` is in the same directory as the script
+1. Ensure the CSV dataset file is placed in the same directory as the script
 2. Make the script executable:
    ```bash
    chmod +x imagery_downloader.sh
    ```
-3. Run the script:
-   ```bash
-   ./imagery_downloader.sh
-   ```
-4. Follow the interactive prompts:
-   - Select a county from the numbered list
-   - Choose a product type to download
-   - Specify download directory (default: `./downloads`)
-   - Confirm your selection to start downloading
+
+## Usage
+
+Execute the script and follow the interactive prompts:
+
+```bash
+./imagery_downloader.sh
+```
+
+### Interactive Process
+
+1. **County Selection** - Select one or more Indiana counties from the available list
+2. **Product Type Selection** - Choose from product types available for your selected counties
+3. **Download Location** - Specify target directory (default: `./downloads`)
+4. **Confirmation** - Review selections and confirm to begin download
+
+### Input Formats
+
+- **Single selection**: `1`
+- **Multiple selections**: `1,3,5`
+- **Range selections**: `1-4`
+- **Combined selections**: `1,3-5,8`
 
 ## File Organization
 
-Downloaded files are organized as follows:
+Downloaded files are organized in a hierarchical structure:
+
 ```
 downloads/
 ├── CountyName/
-│   ├── url_tif/
-│   │   ├── file1.tif
-│   │   └── file2.tif
-│   ├── url_ecw/
-│   │   ├── file1.ecw
-│   │   └── file2.ecw
-│   └── ...
+│   ├── tif/              # TIF raster files and TFW world files
+│   ├── ecw/              # ECW raster files and EWW world files  
+│   ├── sid/              # SID raster files and SDW world files
+│   └── mosaic/           # Mosaic imagery files
 ```
 
-## Available Counties
+## Available Data
 
-The script automatically detects counties from the CSV file, including:
-- Allen
-- Fayette
-- Hamilton
-- Henry
-- Huntington
-- Lake
-- LaPorte
-- Monroe
-- Porter
-- Randolph
-- Union
-- Wayne
+Counties and product types are automatically detected from the dataset. The script will display available options based on the current CSV file.
 
-## Product Types Explained
+## Data Formats
 
-- **TIF + World Files**: High-quality raster imagery (.tif) with geospatial positioning (.tfw) - best quality, larger files
-- **ECW + World Files**: Enhanced Compressed Wavelet format (.ecw) with positioning (.eww) - good quality, smaller files  
-- **SID + World Files**: MrSID compressed imagery (.sid) with positioning (.sdw) - compressed format
-- **Mosaic**: Large-scale combined imagery files covering bigger areas
+### Raster Imagery Formats
+- **TIF + World Files**: Uncompressed high-quality raster imagery (.tif) with geospatial positioning data (.tfw)
+- **ECW + World Files**: Enhanced Compressed Wavelet format (.ecw) with positioning data (.eww) - reduced file size
+- **SID + World Files**: MrSID compressed imagery (.sid) with positioning data (.sdw) - optimized compression
+- **Mosaic**: Large-scale composite imagery files covering extended geographic areas
 
-## Error Handling
+### File Characteristics
+- **Coordinate System**: Compatible with standard GIS applications
+- **File Sizes**: Vary by format and coverage area
+- **Coverage**: County-level organization
 
-The script includes robust error handling:
-- Validates CSV file existence
-- Checks download directory permissions
-- Reports failed downloads with URLs
-- Handles network interruptions gracefully
+## System Behavior
 
-## Example Session
+### Download Management
+- **Resume Support**: Automatically resumes interrupted downloads
+- **Duplicate Detection**: Skips files that are already completely downloaded
+- **Concurrent Downloads**: Utilizes parallel connections for improved transfer speeds
+- **Error Recovery**: Automatic retry on network failures
 
-```
-Step 1: Select County
-Available Counties:
-━━━━━━━━━━━━━━━━━━━━
-[1] Allen
-[2] Fayette
-...
-Enter county number (1-12): 5
+### Validation
+- **File Integrity**: Verifies downloaded file sizes against server specifications
+- **Product Availability**: Pre-filters product types based on county data availability
+- **Input Validation**: Comprehensive validation of user selections
 
-Step 2: Select Product Type
-Available Product Types:
-━━━━━━━━━━━━━━━━━━━━━━━━
-[1] TIF + World Files (High-quality raster + geolocation) - tif
-[2] ECW + World Files (Compressed raster + geolocation) - ecw
-[3] SID + World Files (MrSID compressed + geolocation) - sid
-[4] Mosaic Files (Large-scale combined imagery) - mosaic
-[5] All Product Types - all
-...
-Enter product type number (1-5): 1
+## Troubleshooting
 
-Step 3: Set Download Location
-Enter download directory path (default: ./downloads): 
+### Common Issues
+- **Missing CSV file**: Ensure the required CSV dataset file is in the script directory
+- **Permission errors**: Verify write permissions for the target download directory
+- **Network connectivity**: Confirm internet access and DNS resolution
+- **Curl availability**: Ensure curl is installed and accessible in system PATH
 
-Proceed with download? (y/N): y
-```
+### Performance Considerations
+- **Bandwidth**: Downloads utilize up to 15 concurrent connections
+- **Storage**: Ensure adequate disk space for imagery files
+- **Interruption**: Use Ctrl+C to safely interrupt downloads; resume by re-running the script
 
-## Support
+## Technical Support
 
-This script is designed to be compatible with most Unix-like systems and older bash versions. If you encounter any issues, ensure that:
-- The CSV file is properly formatted
-- You have internet connectivity
-- The destination directory is writable
-- curl is installed and accessible
-
-Happy downloading! 🚀
+For technical assistance or to report issues, ensure you have:
+- Operating system and version information
+- Bash version (`bash --version`)
+- Curl version (`curl --version`)
+- Error messages or log output
+- Steps to reproduce any issues
